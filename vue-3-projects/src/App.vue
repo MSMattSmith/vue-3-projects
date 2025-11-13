@@ -3,13 +3,15 @@ import { ref } from 'vue';
 import IngredientsList from '@/components/IngredientsList.vue';
 import LoadingSpinner from '@/components/LoadingSpinner.vue';
 import ErrorMessage from '@/components/ErrorMessage.vue';
-import { extractIngredientsFromUrl } from '@/services/geminiService';
+import { extractRecipeFromUrl } from '@/services/geminiService';
 import ChefHatIcon from '@/components/ChefHatIcon.vue';
 import URLInputForm from '@/components/URLInputForm.vue';
-import type { Ingredient } from '@/types';
+import type { Ingredient, Step } from '@/types';
 
 const url = ref<string>('');
+const recipeName = ref<string>('');
 const ingredients = ref<Ingredient[] | null>(null);
+const steps = ref<Step[] | null>(null);
 const isLoading = ref<boolean>(false);
 const error = ref<string | null>(null);
 
@@ -22,8 +24,10 @@ const handleExtract = async (newUrl: string) => {
   url.value = newUrl;
 
   try {
-    const extractedIngredients = await extractIngredientsFromUrl(newUrl);
-    ingredients.value = extractedIngredients;
+    const extractedRecipe = await extractRecipeFromUrl(newUrl);
+    recipeName.value = extractedRecipe.recipeName;
+    ingredients.value = extractedRecipe.ingredients;
+    steps.value = extractedRecipe.steps;
   } catch (err) {
     if (err instanceof Error) {
       error.value = err.message;
@@ -42,7 +46,8 @@ const handleExtract = async (newUrl: string) => {
       <header class="text-center mb-8">
         <div class="flex items-center justify-center gap-4 mb-4">
           <ChefHatIcon class="w-12 h-12 text-teal-400" />
-          <h1 class="text-4xl sm:text-5xl font-bold tracking-tight bg-gradient-to-r from-teal-400 to-cyan-500 text-transparent bg-clip-text">
+          <h1
+            class="text-4xl sm:text-5xl font-bold tracking-tight bg-gradient-to-r from-teal-400 to-cyan-500 text-transparent bg-clip-text">
             Recipe AI
           </h1>
         </div>
@@ -53,14 +58,21 @@ const handleExtract = async (newUrl: string) => {
 
       <main>
         <URLInputForm :is-loading="isLoading" @submit="handleExtract" />
-        
+
         <div class="mt-8">
           <LoadingSpinner v-if="isLoading" />
           <ErrorMessage v-if="error" :message="error" />
+          <p v-if="recipeName">{{ recipeName }}</p>
           <IngredientsList v-if="ingredients && ingredients.length > 0" :ingredients="ingredients" />
-          <div v-if="ingredients && ingredients.length === 0 && !isLoading" class="text-center py-10 px-4 bg-gray-800 rounded-lg">
+          <div v-if="ingredients && ingredients.length === 0 && !isLoading"
+            class="text-center py-10 px-4 bg-gray-800 rounded-lg">
             <p class="text-gray-400">No ingredients were found for this recipe.</p>
           </div>
+          <template v-if="steps">
+            <div v-for="step in steps" :key="step.number">
+              <b>{{ step.number }}. </b><p>{{ step.description }}</p>
+            </div>
+          </template>
         </div>
       </main>
     </div>
