@@ -1,7 +1,5 @@
 <template>
     <div class="game-container" @keydown.esc="cancelPendingSkiLift" tabindex="0">
-        <InventoryBar :items="inventoryTypes" @drag-start="handleDragStart" @drag-end="handleDragEnd" />
-
         <!-- Active Mode Notification Banner -->
         <div v-if="pendingSkiLiftSource" class="action-banner">
             <span>🚡 Select a second location to complete the Ski Lift cable connection (or press ESC to cancel).</span>
@@ -94,6 +92,16 @@
                         stroke-width="12" fill="none" filter="url(#tile-shadow)" />
                 </g>
 
+                <g class="footpaths" stroke-linecap="round">
+                    <path v-for="path in footpaths" :key="path.id" :d="getRoadPathD([path.from, path.to])"
+                        :stroke="path.upgraded ? '#FFFFFF' : '#B7791F'" :stroke-width="path.upgraded ? 8 : 3"
+                        :stroke-dasharray="path.upgraded ? undefined : '5 4'" fill="none"
+                        :class="{ 'upgradeable-path': !path.upgraded }"
+                        @click.stop="upgradePath(path.id)">
+                        <title>{{ path.upgraded ? 'Road' : 'Click to upgrade to road' }}</title>
+                    </path>
+                </g>
+
                 <!-- 5. Ski Lift Cables Layer -->
                 <g class="ski-lift-cables">
                     <!-- Permanent Cables -->
@@ -119,6 +127,14 @@
                             :y="b.y * TILE_SIZE + ((b.h || 1) * TILE_SIZE) / 2 + 5" text-anchor="middle" font-size="16">
                             {{ b.icon }}
                         </text>
+                        <template v-if="b.type === 'hotel'">
+                            <circle :cx="b.x * TILE_SIZE + (b.w || 1) * TILE_SIZE - 10" :cy="b.y * TILE_SIZE + 10"
+                                r="10" fill="#1D3557" stroke="#FFFFFF" stroke-width="1.5" />
+                            <text :x="b.x * TILE_SIZE + (b.w || 1) * TILE_SIZE - 10" :y="b.y * TILE_SIZE + 14"
+                                text-anchor="middle" font-size="11" font-weight="700" fill="#FFFFFF">
+                                {{ getHotelGuestCount(b) }}
+                            </text>
+                        </template>
                     </g>
                 </g>
 
@@ -147,9 +163,7 @@
                 </g>
 
                 <!-- 8. Pending Drag & Drop State / Ghost Preview Layer -->
-                <!-- 8. Pending Drag & Drop State / Ghost Preview Layer -->
                 <g v-if="activePreview" class="pending-preview" style="pointer-events: none;">
-                    <!-- Ghost Box Rect -->
                     <rect :x="activePreview.x * TILE_SIZE + 4" :y="activePreview.y * TILE_SIZE + 4"
                         :width="activePreview.w * TILE_SIZE - 8" :height="activePreview.h * TILE_SIZE - 8"
                         :fill="activePreview.valid ? 'rgba(46, 196, 182, 0.35)' : 'rgba(230, 57, 70, 0.35)'"
@@ -161,12 +175,23 @@
                         {{ activePreview.icon }}
                     </text>
 
-                    <!-- Invalid Red X Indicator Badge -->
                     <g v-if="!activePreview.valid"
                         :transform="`translate(${activePreview.x * TILE_SIZE + activePreview.w * TILE_SIZE - 12}, ${activePreview.y * TILE_SIZE + 4})`">
                         <circle cx="6" cy="6" r="10" fill="#E63946" />
                         <path d="M 2,2 L 10,10 M 10,2 L 2,10" stroke="#FFFFFF" stroke-width="2.5"
                             stroke-linecap="round" />
+                    </g>
+                </g>
+
+                <!-- 9. Animated Visitors Layer -->
+                <g class="visitor-layer">
+                    <g v-for="v in store.activeVisitors" :key="'visitor-' + v.id"
+                        :transform="`translate(${v.x * TILE_SIZE + TILE_SIZE / 2}, ${v.y * TILE_SIZE + TILE_SIZE / 2})`"
+                        class="visitor-sprite">
+                        <circle cx="0" cy="0" r="12" fill="#FFFFFF" stroke="#1D3557" stroke-width="2" />
+                        <text x="0" y="4" text-anchor="middle" font-size="12">
+                            {{ getTravelModeIcon(v.travelMode) }}
+                        </text>
                     </g>
                 </g>
             </svg>
@@ -175,8 +200,41 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import InventoryBar from './InventoryBar.vue'
+import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { useGameStore } from '../stores/gameStore.js'
+
+const props = defineProps({
+    draggedItem: {
+        type: Object,
+        default: null
+    }
+})
+
+const emit = defineEmits(['facility-placed'])
+
+const store = useGameStore()
+let animationFrame
+let lastAnimationTime
+
+function animateVisitors(timestamp) {
+    if (lastAnimationTime === undefined) lastAnimationTime = timestamp
+    const deltaSeconds = Math.min((timestamp - lastAnimationTime) / 1000, 0.1)
+    lastAnimationTime = timestamp
+
+    if (!store.isPaused && !store.isDrafting) {
+        store.moveVisitors(deltaSeconds)
+    }
+
+    animationFrame = window.requestAnimationFrame(animateVisitors)
+}
+
+onMounted(() => {
+    animationFrame = window.requestAnimationFrame(animateVisitors)
+})
+
+onUnmounted(() => {
+    window.cancelAnimationFrame(animationFrame)
+})
 
 const TILE_SIZE = 40
 const GRID_WIDTH = 20
@@ -214,32 +272,20 @@ const pineForestZones = [
     { minX: 8, maxX: 14, minY: 12, maxY: 13 }
 ]
 
-const buildings = ref([
-    { id: 'chalet-1', color: '#E76F51', x: 5, y: 0, w: 2, h: 2, icon: '' },
-    { id: 'hotel-1', color: '#2A9D8F', x: 10, y: 4, w: 2, h: 2, icon: '' },
-    { id: 'house-1', color: '#F4A261', x: 6, y: 7, w: 1, h: 1, icon: '' }
-])
+const buildings = ref([])
 
-// Ski Lift Cables & Multi-step placement state
+const footpaths = computed(() => store.infrastructurePaths)
+
 const skiLiftCables = ref([])
 const pendingSkiLiftSource = ref(null)
 
-// Drag and Drop Pending State
-const draggedItem = ref(null)
 const isDraggingOver = ref(false)
 const hoverTile = ref({ x: 0, y: 0 })
 
-function handleDragStart(item) {
-    draggedItem.value = item
-}
-
-function handleDragEnd() {
-    draggedItem.value = null
-    isDraggingOver.value = false
-}
-
 function updateHoverTile(event) {
     const svgRect = event.currentTarget.getBoundingClientRect()
+    if (!svgRect.width || !svgRect.height) return
+
     const scaleX = (GRID_WIDTH * TILE_SIZE) / svgRect.width
     const scaleY = (GRID_HEIGHT * TILE_SIZE) / svgRect.height
 
@@ -247,8 +293,8 @@ function updateHoverTile(event) {
     const mouseY = (event.clientY - svgRect.top) * scaleY
 
     hoverTile.value = {
-        x: Math.floor(mouseX / TILE_SIZE),
-        y: Math.floor(mouseY / TILE_SIZE)
+        x: Math.max(0, Math.min(GRID_WIDTH - 1, Math.floor(mouseX / TILE_SIZE))),
+        y: Math.max(0, Math.min(GRID_HEIGHT - 1, Math.floor(mouseY / TILE_SIZE)))
     }
 }
 
@@ -267,10 +313,19 @@ function onMouseMove(event) {
     }
 }
 
-// Active Pending Ghost Box (dragged item or 2nd ski lift placement)
+function getTravelModeIcon(mode) {
+    switch (mode) {
+        case 'car': return '🚗'
+        case 'bus': return '🚌'
+        case 'train': return '🚆'
+        case 'cable_car': return '🚡'
+        case 'walking': return '🚶'
+    }
+}
+
 const activePreview = computed(() => {
-    if (isDraggingOver.value && draggedItem.value) {
-        const item = draggedItem.value
+    if (isDraggingOver.value && props.draggedItem) {
+        const item = props.draggedItem
         const valid = isValidPlacement(item.type, hoverTile.value.x, hoverTile.value.y, item.width, item.height)
         return {
             x: hoverTile.value.x,
@@ -297,14 +352,11 @@ const activePreview = computed(() => {
     return null
 })
 
-// Validation Rules Engine
 function isValidPlacement(itemType, tileX, tileY, w = 1, h = 1) {
-    // 1. Grid Boundary check
     if (tileX < 0 || tileY < 0 || tileX + w > GRID_WIDTH || tileY + h > GRID_HEIGHT) {
         return false
     }
 
-    // 2. Overlap check with existing structures
     const overlapsBuilding = buildings.value.some(b => {
         const bw = b.w || 1
         const bh = b.h || 1
@@ -312,14 +364,12 @@ function isValidPlacement(itemType, tileX, tileY, w = 1, h = 1) {
     })
     if (overlapsBuilding) return false
 
-    // 3. Rule: Bus stops MUST be placed adjacent to a road segment
     if (itemType === 'bus_stop') {
         if (!isAdjacentToRoad(tileX, tileY, w, h)) {
             return false
         }
     }
 
-    // 4. Rule: Ski lift 2nd station cannot be placed on the exact same tile as station 1
     if (itemType === 'ski_lift' && pendingSkiLiftSource.value) {
         if (pendingSkiLiftSource.value.x === tileX && pendingSkiLiftSource.value.y === tileY) {
             return false
@@ -329,7 +379,6 @@ function isValidPlacement(itemType, tileX, tileY, w = 1, h = 1) {
     return true
 }
 
-// Helper: Check if a tile structure touches or is adjacent to any road tile
 function isAdjacentToRoad(x, y, w, h) {
     const roadTiles = getOccupiedRoadTiles()
 
@@ -364,10 +413,11 @@ function getOccupiedRoadTiles() {
     return tiles
 }
 
-// Drop Handler
 function onDrop(event) {
-    const itemType = event.dataTransfer.getData('text/plain')
-    const itemConfig = inventoryTypes.find(i => i.type === itemType)
+    const itemType = event.dataTransfer?.getData('text/plain')
+    const itemConfig = props.draggedItem?.type === itemType
+        ? props.draggedItem
+        : inventoryTypes.find((i) => i.type === itemType)
     if (!itemConfig) return
 
     updateHoverTile(event)
@@ -378,7 +428,8 @@ function onDrop(event) {
     }
 
     const newBuilding = {
-        id: `${itemType}-${Date.now()}`,
+        id: `${itemConfig.type}-${Date.now()}`,
+        type: itemConfig.type,
         color: itemConfig.color,
         icon: itemConfig.icon,
         x,
@@ -387,17 +438,30 @@ function onDrop(event) {
         h: itemConfig.height
     }
 
+    const placed = store.placeFacility({
+        type: itemConfig.type,
+        label: itemConfig.label,
+        icon: itemConfig.icon,
+        x,
+        y,
+        capacity: itemConfig.capacity,
+        width: itemConfig.width,
+        height: itemConfig.height
+    })
+
+    if (!placed) return
+
     buildings.value.push(newBuilding)
 
-    // Two-step logic for Ski Lifts
     if (itemType === 'ski_lift') {
-        pendingSkiLiftSource.value = { x, y, id: newBuilding.id }
+        pendingSkiLiftSource.value = newBuilding
     }
+
+    emit('facility-placed', itemConfig)
 
     isDraggingOver.value = false
 }
 
-// Click Handler: Completes 2nd Ski Lift placement
 function onBoardClick(event) {
     if (!pendingSkiLiftSource.value) return
 
@@ -419,7 +483,6 @@ function onBoardClick(event) {
 
     buildings.value.push(secondStation)
 
-    // Connect station 1 and station 2 with a ski lift cable
     skiLiftCables.value.push({
         x1: pendingSkiLiftSource.value.x,
         y1: pendingSkiLiftSource.value.y,
@@ -427,8 +490,11 @@ function onBoardClick(event) {
         y2: y
     })
 
-    // Clear pending state
     pendingSkiLiftSource.value = null
+}
+
+function upgradePath(pathId) {
+    store.upgradeInfrastructurePath(pathId)
 }
 
 function cancelPendingSkiLift() {
@@ -464,6 +530,12 @@ function isBuildingOnTile(x, y) {
         const bh = b.h || 1
         return x >= b.x && x < b.x + bw && y >= b.y && y < b.y + bh
     })
+}
+
+function getHotelGuestCount(building) {
+    return store.facilities.find(
+        (facility) => facility.type === 'hotel' && facility.x === building.x && facility.y === building.y
+    )?.currentOccupancy || 0
 }
 
 function isNearRiver(cx, cy) {
@@ -543,7 +615,6 @@ function getRoadPathD(points) {
     flex-direction: column;
     gap: 16px;
     max-width: 900px;
-    margin: 0 auto;
     outline: none;
 }
 
@@ -577,7 +648,7 @@ function getRoadPathD(points) {
 }
 
 .pending-preview {
-  pointer-events: none;
+    pointer-events: none;
 }
 
 @keyframes pulseStation {
