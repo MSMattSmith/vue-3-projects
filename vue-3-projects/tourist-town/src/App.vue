@@ -37,7 +37,7 @@ import TownFacilitiesPanel from './components/TownFacilitiesPanel.vue'
 import WeeklyDraftModal from './components/WeeklyDraftModal.vue'
 import { ACTIVITY_COLORS, type DraftOffer } from './stores/gameStore.js'
 
-// Palette offered at start (e.g. Hotel available to build)
+// Give the opening town the basic hotel-and-food loop before introducing harsher systems.
 const inventoryItems = ref<InventoryItem[]>([
   {
     type: 'hotel',
@@ -47,6 +47,24 @@ const inventoryItems = ref<InventoryItem[]>([
     width: 2,
     height: 2,
     capacity: 6
+  },
+  {
+    type: 'cafe',
+    label: 'Small Café',
+    icon: '☕',
+    color: ACTIVITY_COLORS['cafe'],
+    width: 1,
+    height: 1,
+    capacity: 3
+  },
+  {
+    type: 'parking_lot',
+    label: 'Parking Lot',
+    icon: '🅿️',
+    color: ACTIVITY_COLORS['parking_lot'],
+    width: 2,
+    height: 1,
+    capacity: 8
   }
 ])
 

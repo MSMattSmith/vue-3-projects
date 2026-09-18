@@ -26,9 +26,8 @@
                         <span>{{ v.avatar }} {{ v.name }} ({{ v.type }})</span>
                     </div>
 
-                    <!-- Format using local helper function -->
                     <div class="arrival-time">
-                        <span>Arriving on {{ formatArrival(v.countdown) }}</span>
+                        <span>Arriving on {{ formatArrival(v) }}</span>
                     </div>
 
                     <div class="itinerary">
@@ -55,9 +54,15 @@
             <div class="active-list">
                 <div v-for="v in store.activeVisitors" :key="v.id" class="visitor-card">
                     <div class="v-header">
-                        <span>{{ v.avatar }} {{ v.name }}</span>
+                        <span>{{ v.avatar }} {{ v.name }}<strong v-if="v.isVip" class="vip-badge"> VIP</strong></span>
                         <span class="timer">⏱ {{ formatStay(v.duration) }} left</span>
                     </div>
+
+                    <button class="dispatch-button" :disabled="!store.canExpressDispatch(v)"
+                        title="Spend €40 to make this visitor move 3x faster for 6 game hours and restore patience"
+                        @click="store.expressDispatch(v.id)">
+                        {{ store.canExpressDispatch(v) ? 'Speed boost · 3x for 6h · €40' : 'No destination available' }}
+                    </button>
 
                     <!-- Satisfaction Bar -->
                     <div class="satisfaction-bar">
@@ -65,6 +70,23 @@
                             :style="{ width: v.satisfaction + '%', backgroundColor: getSatisfactionColor(v.satisfaction) }">
                         </div>
                     </div>
+
+                    <div class="patience-bar" title="Patience">
+                        <div class="fill"
+                            :style="{ width: Math.max(0, v.patience) + '%', backgroundColor: getPatienceColor(v.patience) }">
+                        </div>
+                    </div>
+
+                    <div class="visitor-status-line">{{ getVisitorStatus(v) }}</div>
+
+                    <div class="visitor-alert" :class="v.satisfactionState">
+                        {{ v.satisfactionState }} · {{ Math.round(v.satisfaction) }}% satisfaction
+                        <span v-if="v.patienceCountdown">💣 {{ v.patienceCountdown }}s</span>
+                    </div>
+
+                    <button v-if="v.satisfaction < 40" class="voucher-button" @click="store.voucherVisitor(v.id)">
+                        Voucher surge €50 (+35%)
+                    </button>
 
                     <!-- Itinerary Checklist -->
                     <div class="itinerary">
@@ -96,12 +118,14 @@
     </aside>
 </template>
 
-<script setup>
+<script setup lang="ts">
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-nocheck
 import { onMounted, onUnmounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 
 const store = useGameStore()
-const INITIAL_COUNTDOWN_MAX = 24
+const INITIAL_COUNTDOWN_MAX = 180
 
 onMounted(() => {
     store.startGameLoop()
@@ -117,24 +141,54 @@ function getSatisfactionColor(score) {
     return '#E63946'
 }
 
-function formatArrival(countdownHours) {
-    const currentHour = store.hour ?? 0
-    const currentDay = store.day ?? 1
-
-    const totalArrivalHours = currentHour + countdownHours
-    const daysToAdd = Math.floor(totalArrivalHours / 24)
-    const arrivalHour = totalArrivalHours % 24
-
-    const arrivalDay = currentDay + daysToAdd
-    const hh = arrivalHour.toString().padStart(2, '0')
-
-    return `Day ${arrivalDay} at ${hh}:00`
+function getPatienceColor(score) {
+    if (score > 60) return '#38bdf8'
+    if (score > 25) return '#fbbf24'
+    return '#ef4444'
 }
 
-function formatStay(hours) {
+function getVisitorStatus(visitor) {
+    const task = visitor.itinerary[visitor.currentTaskIndex]
+    if (!task) return 'Finished activities · enjoying the town'
+    if (visitor.isStuck) return `Waiting for ${task.label}`
+    if (!visitor.route?.length || visitor.routeIndex >= visitor.route.length) return `At ${task.label}`
+    const mode = visitor.travelMode === 'car' ? 'Driving' : 'Walking'
+    return `${mode} to ${task.label}`
+}
+
+function formatArrival(visitor) {
+    // If the visitor already has a fixed arrival timestamp stored, use it directly
+    if (visitor.arrivalTime) {
+        return visitor.arrivalTime
+    }
+
+    // Otherwise, compute it relative to the current time + remaining countdown once
+    const currentDay = store.day ?? 1
+    const currentHour = store.hour ?? 0
+    const currentMinute = (store.gameTime ?? 0) % 60
+
+    const totalArrivalMinutes = (currentHour * 60) + currentMinute + visitor.countdown
+
+    const extraDays = Math.floor(totalArrivalMinutes / (24 * 60))
+    const minutesInArrivalDay = totalArrivalMinutes % (24 * 60)
+
+    const arrivalDay = currentDay + extraDays
+    const arrivalHour = Math.floor(minutesInArrivalDay / 60)
+    const arrivalMin = minutesInArrivalDay % 60
+
+    const hh = arrivalHour.toString().padStart(2, '0')
+    const mm = arrivalMin.toString().padStart(2, '0')
+
+    return `Day ${arrivalDay} at ${hh}:${mm}`
+}
+
+function formatStay(durationMinutes) {
+    const hours = Math.floor(durationMinutes / 60)
     const days = Math.floor(hours / 24)
     const remainingHours = hours % 24
-    if (!days) return `${remainingHours}h`
+
+    if (!days && !remainingHours) return `${durationMinutes}m`
+    if (!days) return `${hours}h`
     if (!remainingHours) return `${days}d`
     return `${days}d ${remainingHours}h`
 }
@@ -212,6 +266,12 @@ function getArrivalProgress(countdown) {
     margin-bottom: 6px;
 }
 
+.vip-badge {
+    color: #fbbf24;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+}
+
 .satisfaction-bar {
     height: 6px;
     background: #374151;
@@ -223,6 +283,71 @@ function getArrivalProgress(countdown) {
 .satisfaction-bar .fill {
     height: 100%;
     transition: width 0.3s ease;
+}
+
+.patience-bar {
+    height: 4px;
+    margin: 4px 0 8px;
+    background: #374151;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.patience-bar .fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.visitor-status-line {
+    margin: 2px 0 7px;
+    color: #cbd5e1;
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.dispatch-button {
+    border: 1px solid #38bdf8;
+    border-radius: 4px;
+    padding: 4px 7px;
+    margin-bottom: 7px;
+    background: #164e63;
+    color: #e0f2fe;
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.dispatch-button:disabled {
+    border-color: #4b5563;
+    background: #1f2937;
+    color: #6b7280;
+    cursor: not-allowed;
+}
+
+.visitor-alert {
+    margin: 2px 0 6px;
+    color: #86efac;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.visitor-alert.frustrated {
+    color: #fbbf24;
+}
+
+.visitor-alert.furious {
+    color: #f87171;
+    font-weight: 700;
+}
+
+.voucher-button {
+    border: 1px solid #fbbf24;
+    border-radius: 4px;
+    padding: 4px 7px;
+    margin-bottom: 7px;
+    background: #713f12;
+    color: #fef3c7;
+    font-size: 10px;
+    cursor: pointer;
 }
 
 .itinerary {

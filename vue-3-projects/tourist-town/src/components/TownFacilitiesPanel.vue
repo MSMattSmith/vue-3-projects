@@ -9,6 +9,12 @@
                     <span class="name">{{ item.label }}</span>
                     <span class="count">Built: {{ item.count }}</span>
                         <span class="capacity">Capacity: {{ item.usedOccupancy }} / {{ item.totalCapacity }}</span>
+                        <span class="maintenance">Maintenance: {{ facilityMaintenance(item.label) }}%</span>
+                        <div class="facility-actions">
+                            <button @click="serviceType(item.label)">Rush service €75</button>
+                            <button v-if="item.label.includes('Hotel')" @click="cleanHotel">Quick clean €100</button>
+                                <button @click="repairType(item.label)">Repair €120</button>
+                        </div>
                 </div>
             </div>
 
@@ -23,6 +29,25 @@
 import { useGameStore } from '../stores/gameStore'
 
 const store = useGameStore()
+
+function serviceType(label: string) {
+    const facility = store.facilities.find((item) => item.label === label)
+    if (facility) store.serviceFacility(facility.id, store.gameTime)
+}
+
+function cleanHotel() {
+    const hotel = store.facilities.find((facility) => facility.type === 'hotel')
+    if (hotel) store.quickCleanHotel(hotel.id, store.gameTime)
+}
+
+function facilityMaintenance(label: string) {
+    return Math.round(store.facilities.find((facility) => facility.label === label)?.maintenance || 0)
+}
+
+function repairType(label: string) {
+    const facility = store.facilities.find((item) => item.label === label)
+    if (facility) store.repairFacility(facility.id)
+}
 </script>
 
 <style scoped>
@@ -81,9 +106,32 @@ const store = useGameStore()
     color: #10b981;
 }
 
+.maintenance {
+    font-size: 10px;
+    color: #fbbf24;
+}
+
 .empty-state {
     font-size: 12px;
     color: #6b7280;
     font-style: italic;
 }
+
+.facility-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 5px;
+}
+
+.facility-actions button {
+    border: 1px solid #4b5563;
+    border-radius: 4px;
+    padding: 3px 5px;
+    background: #374151;
+    color: #d1d5db;
+    font-size: 10px;
+    cursor: pointer;
+}
+
 </style>

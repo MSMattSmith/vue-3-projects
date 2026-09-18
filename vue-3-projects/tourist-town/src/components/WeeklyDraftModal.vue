@@ -1,8 +1,8 @@
 <template>
     <div v-if="store.isDrafting" class="modal-backdrop">
         <div class="modal-card">
-            <h2>🗓️ End of Week {{ store.week }}</h2>
-            <p class="subtitle">Choose 1 new facility blueprint to place in your town:</p>
+            <h2>🗓️ Week {{ store.week }} Complete!</h2>
+            <p class="subtitle">Choose 1 unlocked facility blueprint for your town:</p>
 
             <div class="offers-grid">
                 <div v-for="offer in store.draftOffers" :key="offer.label" class="offer-card"
@@ -60,7 +60,7 @@ function selectOffer(offer: DraftOffer) {
 
 .offers-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
     margin-top: 24px;
 }
@@ -100,6 +100,12 @@ function selectOffer(offer: DraftOffer) {
 @media (max-width: 560px) {
     .offers-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (min-width: 561px) and (max-width: 760px) {
+    .offers-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 

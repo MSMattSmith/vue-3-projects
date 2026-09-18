@@ -12,10 +12,21 @@
         </div>
 
         <div class="time-controls">
-            <button class="speed-btn" :class="{ active: store.isFastForwarding }"
-                :aria-pressed="store.isFastForwarding" title="Toggle fast forward"
-                @click="store.toggleFastForward">
+            <div v-if="store.forecastEvent || store.activeEvent" class="event-status">
+                <span v-if="store.forecastEvent">Forecast: {{ store.forecastEvent.name }}</span>
+                <span v-else>⚠ {{ store.activeEvent?.name }} · {{ store.eventHoursRemaining }}h</span>
+                <button v-if="store.activeEvent" class="emergency-btn" :disabled="store.emergencyUntil > store.gameTime"
+                    @click="store.useEmergencyMeasure">
+                    {{ store.emergencyUntil > store.gameTime ? 'Emergency Active' : `Emergency
+                    €${store.activeEvent.emergencyCost}` }}
+                </button>
+            </div>
+            <button class="speed-btn" :class="{ active: store.isFastForwarding }" :aria-pressed="store.isFastForwarding"
+                title="Toggle fast forward" @click="store.toggleFastForward">
                 <span>⏩ {{ store.isFastForwarding ? 'Fast' : '1x' }}</span>
+            </button>
+            <button v-if="store.hour >= 22 || store.hour < 6" class="skip-morning-btn" @click="store.skipToMorning">
+                ☀️ Skip to Morning
             </button>
             <label class="difficulty-control">
                 <span>Difficulty</span>
@@ -103,6 +114,30 @@ function setDifficulty(event: Event) {
     gap: 8px;
 }
 
+.event-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 280px;
+    color: #fbbf24;
+    font-size: 11px;
+}
+
+.emergency-btn {
+    border: 1px solid #f59e0b;
+    border-radius: 5px;
+    padding: 4px 7px;
+    background: #78350f;
+    color: #fef3c7;
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.emergency-btn:disabled {
+    opacity: 0.65;
+    cursor: default;
+}
+
 .speed-btn {
     background: #475569;
     color: #ffffff;
@@ -144,5 +179,20 @@ function setDifficulty(event: Event) {
 
 .pause-btn.paused {
     background: #10b981;
+}
+
+.skip-morning-btn {
+    background: #f59e0b;
+    color: #1e293b;
+    font-weight: 700;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.skip-morning-btn:hover {
+    background: #fbbf24;
 }
 </style>
